@@ -1,0 +1,16 @@
+{
+  "name": "purescript-envisage",
+  "version": "1.0.0",
+  "description": "Parsing environment variables in purescript",
+  "main": "index.js",
+  "directories": {
+    "example": "examples",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "example": "spago run -p examples/**/*.purs -m Envisage.Example"
+  },
+  "author": "",
+  "license": "ISC"
+}
