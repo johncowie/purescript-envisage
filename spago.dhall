@@ -8,6 +8,7 @@ You can edit this file as you like.
   , "effect"
   , "integers"
   , "node-process"
+  , "numbers"
   , "prelude"
   , "psci-support"
   , "record"

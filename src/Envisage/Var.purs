@@ -2,10 +2,11 @@ module Envisage.Var where
 
 import Prelude
 import Envisage (Var(..))
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Data.Either (Either(..))
 import Data.Int as Int
 import Data.String as Str
+import Data.Number as Number
 
 class ParseValue v where
   parseValue :: String -> Either String v
@@ -30,12 +31,19 @@ instance parseValueBoolean :: ParseValue Boolean where
       "true" -> Right true
       _ -> Left "Invalid boolean value"
 
+instance parseValueNumber :: ParseValue Number where
+  parseValue s = case Number.fromString s of
+    (Just i) -> Right i
+    Nothing -> Left "Invalid number"
+
 class MaybeShow t where
   maybeShow :: Maybe (t -> String)
 
-instance maybeShowShow :: Show t => MaybeShow t where
+instance maybeShowMaybe :: Show t => MaybeShow (Maybe t) where
+  maybeShow = Just (maybe "" show)
+else instance maybeShowShow :: Show t => MaybeShow t where
   maybeShow = Just show
-else instance maybeShowOther :: MaybeShow a where
+else instance maybeShowOther :: MaybeShow t where
   maybeShow = Nothing
 
 var :: forall t. (MaybeShow t) => (ParseValue t) => String -> Var t
@@ -44,3 +52,10 @@ var varName = Var { varName
                   , default: Nothing
                   , showValue: maybeShow
                   , parser: parseValue }
+
+newVar :: forall t. (MaybeShow t) => String -> (String -> Either String t) -> Var t
+newVar varName parser = Var { varName
+                            , description: Nothing
+                            , default: Nothing
+                            , showValue: maybeShow
+                            , parser: parser }

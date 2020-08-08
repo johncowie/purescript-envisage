@@ -1,14 +1,13 @@
 module Envisage.Internal
-( EnvErrors(..)
-, EnvError(..)
-, ParsedValue
+( EnvError(..)
+, ReadResult(..)
+, Defaulted
 , VarInfo
 , Var(..)
 , class Compiler
 , class ReadValue
 , readValue
 , compileParser
-, addParsedToErrors
 
 , defaultTo
 , withParser
@@ -19,9 +18,8 @@ where
 
 import Prelude
 
-import Data.Bifunctor (lmap)
-import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
+import Data.Either (Either, either)
+import Data.Maybe (Maybe(..), maybe)
 import Data.Symbol (class IsSymbol, SProxy(..))
 import Data.Tuple (Tuple(..))
 import Foreign.Object (Object, lookup)
@@ -46,28 +44,15 @@ type VarInfo = { varName :: String
                , default :: Maybe String
                }
 
-data EnvError = MissingError VarInfo
-              | ParseError VarInfo String
-              | ValueSupplied VarInfo (Maybe String) -- FIXME bit of a hack
+type Defaulted = Boolean
 
-data ParsedValue = ParsedValue VarInfo (Maybe String)
+data ReadResult = MissingError VarInfo
+                | ParseError VarInfo String
+                | ValueSupplied VarInfo (Maybe String)
+                | DefaultUsed VarInfo
+                | OptionalNotSupplied VarInfo
 
-parsedValue :: forall t. Var t -> t -> ParsedValue
-parsedValue (Var r) val = ParsedValue (varInfo (Var r)) (r.showValue <*> Just val)
-
-data EnvErrors = SingleError EnvError | MultipleErrors (Array EnvError)
-
-parsedValueToEnvError :: ParsedValue -> EnvError
-parsedValueToEnvError (ParsedValue info valStrM) = ValueSupplied info valStrM
-
-addParsedToErrors :: Array ParsedValue -> EnvErrors -> EnvErrors
-addParsedToErrors pvs errs = errs <> MultipleErrors (map parsedValueToEnvError pvs)
-
-instance semigroupEnvError :: Semigroup EnvErrors where
-  append (MultipleErrors aErrors) (MultipleErrors bErrors) = MultipleErrors (aErrors <> bErrors)
-  append (MultipleErrors errors) (SingleError err) = MultipleErrors $ errors <> [err]
-  append (SingleError err) (MultipleErrors errors) = MultipleErrors $ [err] <> errors
-  append (SingleError errA) (SingleError errB) = MultipleErrors [errA, errB]
+data EnvError = EnvError (Array ReadResult)
 
 describe :: forall t. String -> Var t -> Var t
 describe desc (Var r) = Var $ r {description = Just desc}
@@ -86,27 +71,38 @@ varInfo (Var {varName, default, description, showValue})
   = {varName, description, default: showValue <*> default}
 
 class ReadValue t where
-  readValue :: Var t -> Maybe String -> Either EnvErrors t
+  readValue :: Var t -> Maybe String -> (Tuple ReadResult (Maybe t))
+
+parseError :: forall t. Var t -> String -> Tuple ReadResult (Maybe t)
+parseError var err = Tuple (ParseError (varInfo var) err) Nothing
+
+missingError :: forall t. Var t -> Tuple ReadResult (Maybe t)
+missingError var = Tuple (MissingError (varInfo var)) Nothing
+
+success :: forall t. Var t -> t -> Tuple ReadResult (Maybe t)
+success var@(Var {showValue}) val = Tuple (ValueSupplied (varInfo var) valStrM) (Just val)
+  where valStrM = showValue <*> Just val
+
+defaultUsed :: forall t. Var t -> t -> Tuple ReadResult (Maybe t)
+defaultUsed var val = Tuple (DefaultUsed (varInfo var)) (Just val)
+
+optionalMissing :: forall t. Var t -> Tuple ReadResult (Maybe t)
+optionalMissing var = Tuple (OptionalNotSupplied (varInfo var)) Nothing
 
 instance readValueMaybe :: ReadValue (Maybe t) where
-  readValue (Var v) (Just str) = lmap (SingleError <<< ParseError (varInfo (Var v))) $ v.parser str
-  readValue (Var v)  Nothing =
-    case v.default of
-      (Just def) -> Right def
-      Nothing -> Right Nothing
+  readValue var@(Var {parser}) (Just str) = either (parseError var) (success var) $ parser str
+  readValue var@(Var {default})  Nothing = maybe (optionalMissing var) (defaultUsed var) default
 else instance readValueAll :: ReadValue t where
-  readValue (Var v) (Just str) = lmap (SingleError <<<  ParseError (varInfo (Var v))) $ v.parser str
-  readValue (Var v) Nothing =
-    case v.default of
-      (Just def) -> Right def
-      Nothing -> Left $ SingleError $ MissingError (varInfo (Var v))
+  readValue var@(Var {parser}) (Just str) = either (parseError var) (success var) $ parser str
+  readValue var@(Var {default}) Nothing = maybe (missingError var) (defaultUsed var) default
 
-readValueFromEnv :: forall t. (ReadValue t) => Var t -> Object String -> Either EnvErrors t
+-- FIXME Use Writer monad for this?
+readValueFromEnv :: forall t. (ReadValue t) => Var t -> Object String -> Tuple ReadResult (Maybe t)
 readValueFromEnv v@(Var {varName, default}) env = readValue v $ lookup varName env
 
 -- TODO rename this typeclass
 class Compiler (el :: RowList) (rl :: RowList) (e :: # Type) (r :: # Type) | el -> rl where
-  compileParser :: forall proxy. proxy el -> proxy rl -> (Record e) -> Object String -> Tuple (Array ParsedValue) (Either EnvErrors (Record r)) -- TODO use state monad
+  compileParser :: forall proxy. proxy el -> proxy rl -> (Record e) -> Object String -> Tuple (Array ReadResult) (Maybe (Record r))
 
 instance compilerResultsNil :: (TypeEquals {} (Record r)) => Compiler Nil Nil p r where
   compileParser _ _ _ _ = Tuple [] $ pure $ to {}
@@ -121,16 +117,13 @@ else instance compilerCons ::
   , Row.Cons l t rt r
   , Compiler plt rlt pt rt
   ) => Compiler (Cons l (Var t) plt) (Cons l t rlt) p r where
-    compileParser _ _ vars env = insert value tail
+    compileParser _ _ vars env = Tuple allResults $ Record.insert name <$> value <*> tail
       where name = (SProxy :: SProxy l)
             (var :: Var t) = Record.get name vars
-            value = readValueFromEnv var env
+            (Tuple readResult value) = readValueFromEnv var env
             varsTail = Record.delete name vars
-            (Tuple parsedVals tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
-            insert (Right val) (Left tailErrs) = Tuple (parsedVals <> [parsedValue var val]) (Left tailErrs)
-            insert (Left valueErr) (Left tailErrs) = Tuple parsedVals $ Left $ valueErr <> tailErrs
-            insert (Right val) (Right tailS) = Tuple (parsedVals <> [parsedValue var val]) (Right (Record.insert name val tailS))
-            insert (Left valueErr) (Right tailS) = Tuple parsedVals $ Left valueErr
+            (Tuple readResults tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
+            allResults = [readResult] <> readResults
 else instance compilerConsSubVars ::
   ( IsSymbol l
   , Row.Lacks l rt
@@ -146,14 +139,26 @@ else instance compilerConsSubVars ::
   , Compiler plt rlt pt rt
   , Compiler vlt tlt v t
   ) => Compiler (Cons l (Record v) plt) (Cons l (Record t) rlt) p r where
-    compileParser _ _ vars env = insert value tail
+    compileParser _ _ vars env = Tuple allResults $ Record.insert name <$> value <*> tail
       where name = (SProxy :: SProxy l)
             (subVars :: Record v) = Record.get name vars
-            (Tuple subParsedVals value) = compileParser (RLProxy :: RLProxy vlt) (RLProxy :: RLProxy tlt) subVars env
+            (Tuple subReadResults value) = compileParser (RLProxy :: RLProxy vlt) (RLProxy :: RLProxy tlt) subVars env
             varsTail = Record.delete name vars
-            (Tuple parsedVals tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
-            allParsedVals = subParsedVals <> parsedVals
-            insert (Right val) (Left tailErrs) = Tuple allParsedVals (Left tailErrs)
-            insert (Left valueErr) (Left tailErrs) = Tuple allParsedVals $ Left $ valueErr <> tailErrs
-            insert (Right val) (Right tailS) = Tuple allParsedVals (Right (Record.insert name val tailS))
-            insert (Left valueErr) (Right tailS) = Tuple allParsedVals $ Left valueErr
+            (Tuple readResults tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
+            allResults = readResults <> subReadResults
+
+-- TODO support showing if value is default
+
+-- Refactoring steps
+-- [X] Remove ParsedResult type, replace with EnvError
+-- [X] Rename EnvError to ReadResult
+-- [X] Change readValue to return Tuple ReadResult (Either Unit r)
+-- [X] Replace (Either unit r) with Maybe r
+-- [X] Remove SingleError from EnvErrors
+-- [X] Rename EnvErrors to EnvError
+-- [X] Use 'note' to add convert resulting tuple to either
+-- [X] Add Boolean to ReadResult indicating if default value was used
+-- [X] Create DefaultUsed ReadResult
+-- [X] Create MissingOptional ReadResult
+-- [ ] Sort readresults by error type (ParseError, Missing, Mandatory - value supplied, Optional - default supplied, Optional - value not supplied)
+-- [ ] Prettify report
