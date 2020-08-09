@@ -1,7 +1,5 @@
 module Envisage.Internal
-( EnvError(..)
-, ReadResult(..)
-, Defaulted
+( ReadResult(..)
 , VarInfo
 , Var(..)
 , class Compiler
@@ -46,15 +44,11 @@ type VarInfo = { varName :: String
                , default :: Maybe String
                }
 
-type Defaulted = Boolean
-
 data ReadResult = MissingError VarInfo
                 | ParseError VarInfo String
                 | ValueSupplied VarInfo (Maybe String)
                 | DefaultUsed VarInfo
                 | OptionalNotSupplied VarInfo
-
-data EnvError = EnvError (Array ReadResult)
 
 describe :: forall t. String -> Var t -> Var t
 describe desc (Var r) = Var $ r {description = Just desc}

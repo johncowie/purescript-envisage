@@ -74,9 +74,9 @@ tableToString :: List (List String) -> String
 tableToString = map (toUnfoldable >>> Str.joinWith " ") >>> toUnfoldable >>> Str.joinWith "\n"
 
 resultOrder :: ReadResult -> Tuple Int String
-resultOrder (MissingError {varName}) = Tuple 2 varName
-resultOrder (ParseError {varName} _) = Tuple 1 varName
-resultOrder (ValueSupplied {varName} _) = Tuple 0 varName
+resultOrder (MissingError {varName}) = Tuple 1 varName
+resultOrder (ParseError {varName} _) = Tuple 0 varName
+resultOrder (ValueSupplied {varName} _) = Tuple 2 varName
 resultOrder (DefaultUsed {varName}) = Tuple 3 varName
 resultOrder (OptionalNotSupplied {varName}) = Tuple 4 varName
 
