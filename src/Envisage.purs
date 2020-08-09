@@ -5,6 +5,8 @@ module Envisage
 )
 where
 
+import Prelude
+import Control.Monad.Writer (runWriter)
 import Data.Either (Either, note)
 import Data.Tuple (Tuple(..))
 import Envisage.Internal as Internal
@@ -25,4 +27,4 @@ instance readEnvImpl ::
   , ListToRow el l
   ) => ReadEnv e r where
     readEnv vars env = note (EnvError readResults) res
-      where (Tuple readResults res) = Internal.compileParser (RLProxy :: RLProxy el) (RLProxy :: RLProxy rl) vars env
+      where (Tuple res readResults) = runWriter $ Internal.compileParser (RLProxy :: RLProxy el) (RLProxy :: RLProxy rl) vars env

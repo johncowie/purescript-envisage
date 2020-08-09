@@ -1,8 +1,15 @@
-module Envisage.Var where
+module Envisage.Var
+( class ParseValue
+, parseValue
+, class MaybeShow
+, maybeShow
+, var
+, newVar)
+where
 
 import Prelude
 import Envisage (Var(..))
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..))
 import Data.Either (Either(..))
 import Data.Int as Int
 import Data.String as Str
@@ -37,14 +44,14 @@ instance parseValueNumber :: ParseValue Number where
     Nothing -> Left "Invalid number"
 
 class MaybeShow t where
-  maybeShow :: Maybe (t -> String)
+  maybeShow :: (t -> Maybe String)
 
 instance maybeShowMaybe :: Show t => MaybeShow (Maybe t) where
-  maybeShow = Just (maybe "" show)
+  maybeShow = map show
 else instance maybeShowShow :: Show t => MaybeShow t where
-  maybeShow = Just show
+  maybeShow = map Just show
 else instance maybeShowOther :: MaybeShow t where
-  maybeShow = Nothing
+  maybeShow = const Nothing
 
 var :: forall t. (MaybeShow t) => (ParseValue t) => String -> Var t
 var varName = Var { varName

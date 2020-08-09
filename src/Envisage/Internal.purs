@@ -18,6 +18,8 @@ where
 
 import Prelude
 
+-- import Control.Bind (join)
+import Control.Monad.Writer (Writer, writer)
 import Data.Either (Either, either)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Symbol (class IsSymbol, SProxy(..))
@@ -36,7 +38,7 @@ data Var t = Var { varName :: String
                  , description :: Maybe String
                  , parser :: String -> Either String t
                  , default :: Maybe t
-                 , showValue :: Maybe (t -> String)
+                 , showValue :: t -> Maybe String
                  }
 
 type VarInfo = { varName :: String
@@ -64,30 +66,33 @@ withParser :: forall t. (String -> Either String t) -> Var t -> Var t
 withParser parser (Var r) = Var $ r {parser = parser}
 
 withShow :: forall t. (t -> String) -> Var t -> Var t
-withShow showVal (Var r) = Var $ r {showValue = Just showVal}
+withShow showVal (Var r) = Var $ r {showValue = map Just showVal}
 
 varInfo :: forall t. Var t -> VarInfo
 varInfo (Var {varName, default, description, showValue})
-  = {varName, description, default: showValue <*> default}
+  = {varName, description, default: join $ showValue <$> default}
 
 class ReadValue t where
-  readValue :: Var t -> Maybe String -> (Tuple ReadResult (Maybe t))
+  readValue :: Var t -> Maybe String -> Writer (Array ReadResult) (Maybe t)
 
-parseError :: forall t. Var t -> String -> Tuple ReadResult (Maybe t)
-parseError var err = Tuple (ParseError (varInfo var) err) Nothing
+writer' :: forall a w. w -> a -> Writer w a
+writer' a w = writer $ Tuple w a
 
-missingError :: forall t. Var t -> Tuple ReadResult (Maybe t)
-missingError var = Tuple (MissingError (varInfo var)) Nothing
+parseError :: forall t. Var t -> String -> Writer (Array ReadResult) (Maybe t)
+parseError var err = writer' [ParseError (varInfo var) err] Nothing
 
-success :: forall t. Var t -> t -> Tuple ReadResult (Maybe t)
-success var@(Var {showValue}) val = Tuple (ValueSupplied (varInfo var) valStrM) (Just val)
-  where valStrM = showValue <*> Just val
+missingError :: forall t. Var t -> Writer (Array ReadResult) (Maybe t)
+missingError var = writer' [MissingError (varInfo var)] Nothing
 
-defaultUsed :: forall t. Var t -> t -> Tuple ReadResult (Maybe t)
-defaultUsed var val = Tuple (DefaultUsed (varInfo var)) (Just val)
+success :: forall t. Var t -> t -> Writer (Array ReadResult) (Maybe t)
+success var@(Var {showValue}) val = writer' [ValueSupplied (varInfo var) valStrM] (Just val)
+  where valStrM = showValue val
 
-optionalMissing :: forall t. Var t -> Tuple ReadResult (Maybe t)
-optionalMissing var = Tuple (OptionalNotSupplied (varInfo var)) Nothing
+defaultUsed :: forall t. Var t -> t -> Writer (Array ReadResult) (Maybe t)
+defaultUsed var val = writer' [DefaultUsed (varInfo var)] (Just val)
+
+optionalMissing :: forall t. Var t -> Writer (Array ReadResult) (Maybe t)
+optionalMissing var = writer' [OptionalNotSupplied (varInfo var)] Nothing
 
 instance readValueMaybe :: ReadValue (Maybe t) where
   readValue var@(Var {parser}) (Just str) = either (parseError var) (success var) $ parser str
@@ -97,15 +102,16 @@ else instance readValueAll :: ReadValue t where
   readValue var@(Var {default}) Nothing = maybe (missingError var) (defaultUsed var) default
 
 -- FIXME Use Writer monad for this?
-readValueFromEnv :: forall t. (ReadValue t) => Var t -> Object String -> Tuple ReadResult (Maybe t)
+-- FIXME possible to combine Writer and Maybe with WriterT?
+readValueFromEnv :: forall t. (ReadValue t) => Var t -> Object String -> Writer (Array ReadResult) (Maybe t)
 readValueFromEnv v@(Var {varName, default}) env = readValue v $ lookup varName env
 
 -- TODO rename this typeclass
 class Compiler (el :: RowList) (rl :: RowList) (e :: # Type) (r :: # Type) | el -> rl where
-  compileParser :: forall proxy. proxy el -> proxy rl -> (Record e) -> Object String -> Tuple (Array ReadResult) (Maybe (Record r))
+  compileParser :: forall proxy. proxy el -> proxy rl -> (Record e) -> Object String -> Writer (Array ReadResult) (Maybe (Record r))
 
 instance compilerResultsNil :: (TypeEquals {} (Record r)) => Compiler Nil Nil p r where
-  compileParser _ _ _ _ = Tuple [] $ pure $ to {}
+  compileParser _ _ _ _ = pure $ pure $ to {}
 else instance compilerCons ::
   ( IsSymbol l
   , ReadValue t
@@ -117,13 +123,14 @@ else instance compilerCons ::
   , Row.Cons l t rt r
   , Compiler plt rlt pt rt
   ) => Compiler (Cons l (Var t) plt) (Cons l t rlt) p r where
-    compileParser _ _ vars env = Tuple allResults $ Record.insert name <$> value <*> tail
+    compileParser _ _ vars env = do
+      valueM <- readValueFromEnv var env
+      tailM <- compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
+      pure $ Record.insert name <$> valueM <*> tailM
       where name = (SProxy :: SProxy l)
-            (var :: Var t) = Record.get name vars
-            (Tuple readResult value) = readValueFromEnv var env
+            var = Record.get name vars
             varsTail = Record.delete name vars
-            (Tuple readResults tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
-            allResults = [readResult] <> readResults
+
 else instance compilerConsSubVars ::
   ( IsSymbol l
   , Row.Lacks l rt
@@ -139,13 +146,13 @@ else instance compilerConsSubVars ::
   , Compiler plt rlt pt rt
   , Compiler vlt tlt v t
   ) => Compiler (Cons l (Record v) plt) (Cons l (Record t) rlt) p r where
-    compileParser _ _ vars env = Tuple allResults $ Record.insert name <$> value <*> tail
+    compileParser _ _ vars env = do
+      valueM <- compileParser (RLProxy :: RLProxy vlt) (RLProxy :: RLProxy tlt) subVars env
+      tailM <- compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
+      pure $ Record.insert name <$> valueM <*> tailM
       where name = (SProxy :: SProxy l)
-            (subVars :: Record v) = Record.get name vars
-            (Tuple subReadResults value) = compileParser (RLProxy :: RLProxy vlt) (RLProxy :: RLProxy tlt) subVars env
+            subVars = Record.get name vars
             varsTail = Record.delete name vars
-            (Tuple readResults tail) = compileParser (RLProxy :: RLProxy plt) (RLProxy :: RLProxy rlt) varsTail env
-            allResults = readResults <> subReadResults
 
 -- TODO support showing if value is default
 
@@ -162,3 +169,4 @@ else instance compilerConsSubVars ::
 -- [X] Create MissingOptional ReadResult
 -- [ ] Sort readresults by error type (ParseError, Missing, Mandatory - value supplied, Optional - default supplied, Optional - value not supplied)
 -- [ ] Prettify report
+-- [ ] Supply default description?
