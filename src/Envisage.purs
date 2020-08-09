@@ -1,8 +1,9 @@
 module Envisage
 ( class ReadEnv
 , readEnv
-, module Envisage.Internal
 , EnvError(..)
+, module Envisage.Internal
+, module Envisage.Var
 )
 where
 
@@ -10,8 +11,9 @@ import Prelude
 import Control.Monad.Writer (runWriter)
 import Data.Either (Either, note)
 import Data.Tuple (Tuple(..))
+import Envisage.Var (var, var')
 import Envisage.Internal as Internal
-import Envisage.Internal (Var(..), VarInfo, ReadResult(..), defaultTo, withParser, withShow, describe)
+import Envisage.Internal (Var(..), VarInfo, ReadResult(..), defaultTo, withParser, withShow, describe, showParsed)
 import Foreign.Object (Object)
 import Prim.RowList (class RowToList)
 import Type.RowList (class ListToRow)

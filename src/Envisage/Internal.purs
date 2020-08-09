@@ -11,6 +11,7 @@ module Envisage.Internal
 , withParser
 , withShow
 , describe
+, showParsed
 )
 where
 
@@ -59,6 +60,9 @@ defaultTo def (Var r) = Var $ r {default = Just def}
 withParser :: forall t. (String -> Either String t) -> Var t -> Var t
 withParser parser (Var r) = Var $ r {parser = parser}
 
+showParsed :: forall t. (Show t) => Var t -> Var t
+showParsed = withShow show
+
 withShow :: forall t. (t -> String) -> Var t -> Var t
 withShow showVal (Var r) = Var $ r {showValue = map Just showVal}
 
@@ -95,8 +99,6 @@ else instance readValueAll :: ReadValue t where
   readValue var@(Var {parser}) (Just str) = either (parseError var) (success var) $ parser str
   readValue var@(Var {default}) Nothing = maybe (missingError var) (defaultUsed var) default
 
--- FIXME Use Writer monad for this?
--- FIXME possible to combine Writer and Maybe with WriterT?
 readValueFromEnv :: forall t. (ReadValue t) => Var t -> Object String -> Writer (Array ReadResult) (Maybe t)
 readValueFromEnv v@(Var {varName, default}) env = readValue v $ lookup varName env
 

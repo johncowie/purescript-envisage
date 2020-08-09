@@ -1,14 +1,12 @@
 module Envisage.Var
 ( class ParseValue
 , parseValue
-, class MaybeShow
-, maybeShow
 , var
-, newVar)
+, var')
 where
 
 import Prelude
-import Envisage (Var(..))
+import Envisage.Internal (Var(..))
 import Data.Maybe (Maybe(..))
 import Data.Either (Either(..))
 import Data.Int as Int
@@ -43,26 +41,16 @@ instance parseValueNumber :: ParseValue Number where
     (Just i) -> Right i
     Nothing -> Left "Invalid number"
 
-class MaybeShow t where
-  maybeShow :: (t -> Maybe String)
-
-instance maybeShowMaybe :: Show t => MaybeShow (Maybe t) where
-  maybeShow = map show
-else instance maybeShowShow :: Show t => MaybeShow t where
-  maybeShow = map Just show
-else instance maybeShowOther :: MaybeShow t where
-  maybeShow = const Nothing
-
-var :: forall t. (MaybeShow t) => (ParseValue t) => String -> Var t
+var :: forall t. (ParseValue t) => String -> Var t
 var varName = Var { varName
                   , description: Nothing
                   , default: Nothing
-                  , showValue: maybeShow
+                  , showValue: const Nothing
                   , parser: parseValue }
 
-newVar :: forall t. (MaybeShow t) => String -> (String -> Either String t) -> Var t
-newVar varName parser = Var { varName
-                            , description: Nothing
-                            , default: Nothing
-                            , showValue: maybeShow
-                            , parser: parser }
+var' :: forall t. String -> (String -> Either String t) -> Var t
+var' varName parser = Var { varName
+                          , description: Nothing
+                          , default: Nothing
+                          , showValue: const Nothing
+                          , parser: parser }
