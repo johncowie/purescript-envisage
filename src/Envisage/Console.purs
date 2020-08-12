@@ -12,7 +12,7 @@ import Data.Foldable (maximum)
 import Data.Maybe (Maybe, fromMaybe, maybe)
 import Data.String as Str
 import Data.Tuple (Tuple(..))
-import Envisage (EnvError(..), ReadResult(..), VarInfo)
+import Envisage.Internal (EnvError(..), ReadResult(..), VarInfo)
 
 padTo :: Int -> String -> String
 padTo n s

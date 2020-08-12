@@ -2,8 +2,12 @@ module Envisage.Internal
 ( ReadResult(..)
 , VarInfo
 , Var(..)
+, EnvError(..)
+, EnvisageInternal
 , class ReadValue
 , readValue
+, readEnv
+, readEnv'
 
 , defaultTo
 , withParser
@@ -16,10 +20,14 @@ where
 
 import Prelude
 
-import Data.Either (Either, either)
+import Data.Either (Either, either, note)
 import Data.Maybe (Maybe(..), maybe)
-import Envisage.Logger (LoggerT, loggerT, ReaderLoggerT, readerLoggerT)
+import Data.Tuple (Tuple(..))
+import Envisage.Logger (LoggerT, loggerT, ReaderLoggerT, readerLoggerT, runReaderLoggerT)
 import Foreign.Object (Object, lookup)
+import Envisage.Record (class RecordUpdate, recordUpdate, class HasFunction)
+import Prim.RowList (class RowToList)
+import Type.Data.RowList (RLProxy(..))
 
 type Env = Object String
 
@@ -88,3 +96,35 @@ else instance readValueAll :: ReadValue t where
 
 readValueFromEnv :: forall t. (ReadValue t) => Var t -> ReaderLoggerT Env (Array ReadResult) Maybe t
 readValueFromEnv v@(Var {varName, default}) = readerLoggerT $ \env -> readValue v $ lookup varName env
+
+data EnvError = EnvError (Array ReadResult)
+
+data EnvisageInternal = EnvisageInternal
+
+instance hasFunctionReadVar :: HasFunction EnvisageInternal (Var t) (ReaderLoggerT (Object String) (Array ReadResult) Maybe t) where
+  getFunction _ = readValueFromEnv
+
+instance hasFunctionReadRecord :: (
+  RowToList e el
+, RowToList r rl
+, RecordUpdate (ReaderLoggerT (Object String) (Array ReadResult) Maybe) el rl EnvisageInternal e r
+) => HasFunction EnvisageInternal (Record e) (ReaderLoggerT (Object String) (Array ReadResult) Maybe (Record r)) where
+  getFunction _ = recordUpdate (RLProxy :: RLProxy el) (RLProxy :: RLProxy rl) EnvisageInternal
+
+readEnv' :: forall e r el rl .
+            RowToList e el
+         => RowToList r rl
+         => RecordUpdate (ReaderLoggerT (Object String) (Array ReadResult) Maybe) el rl EnvisageInternal e r
+         => Record e
+         -> (ReaderLoggerT (Object String) (Array ReadResult) Maybe) (Record r)
+readEnv' = recordUpdate (RLProxy :: RLProxy el) (RLProxy :: RLProxy rl) EnvisageInternal
+
+readEnv :: forall e r el rl .
+            RowToList e el
+         => RowToList r rl
+         => RecordUpdate (ReaderLoggerT (Object String) (Array ReadResult) Maybe) el rl EnvisageInternal e r
+         => Record e
+         -> Object String
+         -> Either EnvError (Record r)
+readEnv vars env = note (EnvError readResults) res
+  where (Tuple readResults res) = runReaderLoggerT env $ readEnv' vars
