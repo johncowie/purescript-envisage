@@ -6,7 +6,7 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe)
 import Effect (Effect)
 import Effect.Console as Console
-import Envisage (Var, defaultTo, describe, readEnv, showParsed, withShow, Component(..), initComponents)
+import Envisage (Var, defaultTo, describe, readEnv, showParsed, withShow, Component(..), initComponents, mkComponent)
 import Envisage.Console (printErrorsForConsole)
 import Envisage.Var (var, var', class ParseValue)
 import Node.Process (getEnv)
@@ -43,20 +43,13 @@ exampleEnv = { a: "BILL" ## describe "Bill is an int" # defaultTo 7 # showParsed
              , g: var' "UNIT" parseUnit # describe "A unit (no typeclass)" # withShow (const "()")
              , h: var' "X" parseX }
 
-type Component1Env = { a :: Var Int
-                    , b :: Var String}
+component1 :: Component String
+component1 = mkComponent { a: (var "A" :: Var Boolean)
+                         , b: (var "B" :: Var String)} show
 
-type Component1Config = {a :: Int, b :: String}
-
-component1 :: Component Component1Env Component1Config String
-component1 = Component { a: var "A"
-                       , b: var "B"} show
-
-type Component2Env = {c :: Var Boolean, d :: Var Boolean}
-type Component2Config = {c :: Boolean, d :: Boolean}
-
-component2 :: Component Component2Env Component2Config String
-component2 = Component { c: var "C", d: var "D"} show
+component2 :: Component String
+component2 = mkComponent { c: (var "C" :: Var Int)
+                         , d: var "D" :: Var Int} show
 
 main :: Effect Unit
 main = do

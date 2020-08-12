@@ -8,7 +8,7 @@ where
 
 import Envisage.Internal (Var(..), readEnv, defaultTo, withParser, withShow, describe, showParsed)
 import Envisage.Var (var, var')
-import Envisage.Component (Component(..), initComponents)
+import Envisage.Component (Component(..), initComponents, mkComponent)
 
 {-
   New thoughts, ideally a component should describe what env vars it needs

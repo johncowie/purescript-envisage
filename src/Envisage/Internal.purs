@@ -101,7 +101,7 @@ data EnvError = EnvError (Array ReadResult)
 
 data EnvisageInternal = EnvisageInternal
 
-instance hasFunctionReadVar :: HasFunction EnvisageInternal (Var t) (ReaderLoggerT (Object String) (Array ReadResult) Maybe t) where
+instance hasFunctionReadVar :: (ReadValue t) => HasFunction EnvisageInternal (Var t) (ReaderLoggerT (Object String) (Array ReadResult) Maybe t) where
   getFunction _ = readValueFromEnv
 
 instance hasFunctionReadRecord :: (

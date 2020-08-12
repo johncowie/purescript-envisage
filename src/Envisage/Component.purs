@@ -1,7 +1,8 @@
 module Envisage.Component
 ( EnvisageComponent
 , Component(..)
-, initComponents )
+, initComponents
+, mkComponent)
 where
 
 import Prelude
@@ -12,32 +13,35 @@ import Data.Tuple (Tuple(..))
 import Envisage.Internal (EnvError(..), EnvisageInternal, readEnv')
 import Envisage.Internal as Internal
 import Envisage.Logger (ReaderLoggerT, runReaderLoggerT)
-import Envisage.Record (class RecordUpdate, class HasFunction, recordUpdate)
+import Envisage.Record (class RecordUpdate, class HasFunction, recordUpdate, getFunction)
 import Foreign.Object (Object)
 import Prim.RowList (class RowToList)
 import Type.Data.RowList (RLProxy(..))
 
 data EnvisageComponent = EnvisageComponent
-data Component e r c = Component e (r -> c)
+data Component o = Component (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe o)
 
-instance hasFunctionReadComponent :: (
-  RowToList e el
-, RowToList r rl
-, RecordUpdate (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe) el rl EnvisageInternal e r
-) => HasFunction EnvisageComponent (Component (Record e) (Record r) c) (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe c) where
+mkComponent :: forall e el r rl o.
+               RowToList e el
+            => RowToList r rl
+            => RecordUpdate (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe) el rl EnvisageInternal e r
+            => (Record e)
+            -> (Record r -> o)
+            -> Component o
+mkComponent vars ctr = Component (ctr <$> config)
+  where config = readEnv' vars
+
+instance hasFunctionReadComponent :: HasFunction EnvisageComponent (Component c) (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe c) where
   getFunction :: EnvisageComponent
-              -> (Component (Record e) (Record r) c)
+              -> (Component c)
               -> ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe c
-  getFunction EnvisageComponent = readComponent
+  getFunction EnvisageComponent (Component r) = r
 
-readComponent :: forall e el r rl c.
-                 RowToList e el
-              => RowToList r rl
-              => RecordUpdate (ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe) el rl EnvisageInternal e r
-              => (Component (Record e) (Record r) c)
+unwrapComponent :: forall c.
+                (Component c)
               -> ReaderLoggerT (Object String) (Array Internal.ReadResult) Maybe c
               -- FIXME replace recordUpdate with version of readEnv that hides EnvisageInternal
-readComponent (Component vars cstr) = cstr <$> readEnv' vars
+unwrapComponent = getFunction EnvisageComponent
 
 initComponents :: forall c o cl ol.
                   RowToList o ol
