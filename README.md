@@ -1,18 +1,20 @@
 # purescript-envisage
 Parse environment variables, with handy console output/documentation
 
-### Attribution
+## Attribution
 
 TODO
 
-### Motivation
+## Motivation
 
 TODO
 
-### Usage
+## Usage
 
-TODO
+### Custom Types
 
-### Larger-scale
+### Errors
+
+## Larger-scale
 
 TODO
