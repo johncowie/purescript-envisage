@@ -3,6 +3,14 @@ module  Envisage.Logger where
 import Prelude
 import Data.Tuple(Tuple(..))
 
+import Data.Maybe (Maybe(..))
+import Effect (Effect)
+import Effect.Console as Console
+
+
+main :: Effect Unit
+main = Console.log $ show $ runLoggerT $ loggerT ([] :: Array String) (Just Nothing :: Maybe (Maybe Int))
+
 data LoggerT md a x = LoggerT md (a x)
 
 instance functorLogger :: (Functor a) => Functor (LoggerT md a) where

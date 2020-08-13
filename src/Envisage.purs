@@ -2,13 +2,11 @@ module Envisage
 (
   module Envisage.Internal
 , module Envisage.Var
-, module Envisage.Component
 )
 where
 
-import Envisage.Internal (Var(..), readEnv, defaultTo, withParser, withShow, describe, showParsed)
+import Envisage.Internal (Var(..), readEnv, defaultTo, withParser, withShow, describe, showParsed, mkComponent, Component)
 import Envisage.Var (var, var')
-import Envisage.Component (Component(..), initComponents, mkComponent)
 
 {-
   New thoughts, ideally a component should describe what env vars it needs

@@ -4,6 +4,8 @@ module Envisage.Internal
 , Var(..)
 , EnvError(..)
 , EnvisageInternal
+, Component
+, mkComponent
 , class ReadValue
 , readValue
 , readEnv
@@ -49,6 +51,8 @@ data ReadResult = MissingError VarInfo
                 | DefaultUsed VarInfo
                 | OptionalNotSupplied VarInfo
 
+data Component o = Component (ReaderLoggerT (Object String) (Array ReadResult) Maybe o)
+
 describe :: forall t. String -> Var t -> Var t
 describe desc (Var r) = Var $ r {description = Just desc}
 
@@ -84,8 +88,8 @@ success var@(Var {showValue}) val = loggerT [ValueSupplied (varInfo var) valStrM
 defaultUsed :: forall t. Var t -> t -> LoggerT (Array ReadResult) Maybe t
 defaultUsed var val = loggerT [DefaultUsed (varInfo var)] (Just val)
 
-optionalMissing :: forall t. Var t -> LoggerT (Array ReadResult) Maybe t
-optionalMissing var = loggerT [OptionalNotSupplied (varInfo var)] Nothing
+optionalMissing :: forall t. Var (Maybe t) -> LoggerT (Array ReadResult) Maybe (Maybe t)
+optionalMissing var = loggerT [OptionalNotSupplied (varInfo var)] (Just Nothing)
 
 instance readValueMaybe :: ReadValue (Maybe t) where
   readValue var@(Var {parser}) (Just str) = either (parseError var) (success var) $ parser str
@@ -111,6 +115,22 @@ instance hasFunctionReadRecord :: (
 ) => HasFunction EnvisageInternal (Record e) (ReaderLoggerT (Object String) (Array ReadResult) Maybe (Record r)) where
   getFunction _ = recordUpdate (RLProxy :: RLProxy el) (RLProxy :: RLProxy rl) EnvisageInternal
 
+instance hasFunctionReadComponent :: HasFunction EnvisageInternal (Component c) (ReaderLoggerT (Object String) (Array ReadResult) Maybe c) where
+  getFunction :: EnvisageInternal
+              -> (Component c)
+              -> ReaderLoggerT (Object String) (Array ReadResult) Maybe c
+  getFunction EnvisageInternal (Component r) = r
+
+mkComponent :: forall e el r rl o.
+               RowToList e el
+            => RowToList r rl
+            => RecordUpdate (ReaderLoggerT (Object String) (Array ReadResult) Maybe) el rl EnvisageInternal e r
+            => (Record e)
+            -> (Record r -> o)
+            -> Component o
+mkComponent vars ctr = Component (ctr <$> config)
+  where config = readEnv' vars
+
 readEnv' :: forall e r el rl .
             RowToList e el
          => RowToList r rl
@@ -123,8 +143,8 @@ readEnv :: forall e r el rl .
             RowToList e el
          => RowToList r rl
          => RecordUpdate (ReaderLoggerT (Object String) (Array ReadResult) Maybe) el rl EnvisageInternal e r
-         => Record e
-         -> Object String
+         => (Object String)
+         -> Record e
          -> Either EnvError (Record r)
-readEnv vars env = note (EnvError readResults) res
+readEnv env vars = note (EnvError readResults) res
   where (Tuple readResults res) = runReaderLoggerT env $ readEnv' vars
